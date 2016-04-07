@@ -18,10 +18,9 @@ def jacobian(func, x, *args, **kwargs):
     f = lambda x_: func(x_, *args, **kwargs)
     j = None  # matrix of zeros
     for n in xrange(nargs):
-        d = np.zeros((nargs, nobs))
-        d[n] += x[n] * DELTA
-        dx = 2.0 * DELTA * x[n]
-        df = (f(x + d) - f(x - d)) / dx
+        dx = np.zeros((nargs, nobs))
+        dx[n] += x[n] * DELTA
+        df = (f(x + dx) - f(x - dx)) / dx[n] / 2.0
         # derivatives df/d_n
         if j is None:
             j = np.zeros((df.shape[0], nargs, nobs))
@@ -30,6 +29,9 @@ def jacobian(func, x, *args, **kwargs):
 
 
 def jacobs(j):
+    """
+    unravel jacobian observations
+    """
     nobs, nf, nx = j.shape
     nrows, ncols = nf*nobs, nx*nobs
     jj = np.zeros((nrows, ncols))
