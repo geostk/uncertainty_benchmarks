@@ -1,20 +1,38 @@
+"""
+Jacobian estimation.
+
+SunPower Corp. (c) 2016
+Mark Mikofski
+Confidential and Proprietary - Do Not Distribute
+"""
+
 import numpy as np
-import logging
 from time import clock
 
-logging.basicConfig()
-LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.DEBUG)
-DELTA = np.finfo(float).eps ** 0.333
+DELTA = np.finfo(float).eps ** (1.0 / 3.0)
+
 
 def jacobian(func, x, *args, **kwargs):
     """
-    estimate Jacobian
+    Estimate Jacobian matrices :math:`\frac{\partial f_i}{\partial x_jk}` where
+    :math:`k` are independent observations of :math:`x`.
+
+    The independent variable, :math:`x`, must be a numpy array with exactly 2
+    dimensions. The first dimension is the number of independent arguments,
+    and the second dimentions is the number of observations.
+
+    The function must return a numpy array with exactly 2 dimensions. The first
+    is the number of returns and the second dimension corresponds to the number
+    of observations.
+
+    Use ``numpy.atleast_2d()`` to get the correct dimensions for scalars.
+
+    :param func: function
+    :param x: independent variables grouped by observation
+    :return: Jacobian matrices for each observation
     """
     nargs = x.shape[0]  # degrees of freedom
     nobs = x.size / nargs  # number of observations
-    LOGGER.debug("degrees of freedom: %d", nargs)
-    LOGGER.debug("number of observations: %d", nobs )
     f = lambda x_: func(x_, *args, **kwargs)
     j = None  # matrix of zeros
     for n in xrange(nargs):

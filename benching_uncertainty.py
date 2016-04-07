@@ -4,18 +4,28 @@ benchmark uncertainty methods with simple function
 ============================  ==============
 method                        Benchmark [s]
 ============================  ==============
-Numpy w/std-dev only          0.000897679
-Numpy w/covariance            0.0802293
-create ufloat w/std-dev only  0.00235367
-Uncertainties w/std-dev only  0.0101061
-Scipy w/std-dev only          0.00101605
-statsmodels w/std-dev only    0.0433595
-statsmodels w/covariance      0.128675
-numdifftools w/std-dev only   0.120109
-numdifftools w/covariance     94.9882
-algopy w/std-dev              0.0299368
-algopy w/covariance           0.177164
+Numpy w/std-dev only          0.000866898
+create ufloat w/std-dev only  0.00197498
+Uncertainties w/std-dev only  0.00774529 ($)
+Scipy w/std-dev only          0.00157711
+statsmodels w/std-dev only    0.0441201
+numdifftools w/std-dev only   0.104556
+algopy w/std-dev              0.0277903 (*)
+----------------------------  --------------
+Numpy w/covariance            0.0770831
+Jacobian estimate             0.0816991
+statsmodels w/covariance      0.113367
+numdifftools w/covariance     85.104
+algopy w/covariance           0.156879
 ============================  ==============
+
+Notes:
+------
+* Uncertainties covariance doesn't work with wrapped functions and not with
+  unumpy vectorized analytical derivatives either, fails comparison 
+* variance of all runtimes is large, from 10% up to 50%
+($) total time for Uncertainties is 0.00972072[s]
+(*) algopy derivative runtimes seems to vary by 10x, weird!
 """
 
 import numpy as np
@@ -35,7 +45,7 @@ from uncertainties import ufloat, umath, unumpy, correlated_values, wrap
 #
 from statsmodels.tools import numdiff
 from scipy.misc import derivative
-import quantities as pq
+from jacobian_fun import jacobian, jacobs
 from time import clock
 import logging
 
@@ -166,6 +176,29 @@ def test_scipy_derivative(avg=AVG, std=STD, f=F):
     LOGGER.debug('\t4> %g [s]', clock() - c)
     return np.array(zip(avg, std), dtype=dt)
 
+# test Jacobian estimate
+def test_jacobian_cov(avg=AVG, cov=COV, f=F):
+    c = clock()
+    avg = np.atleast_2d(avg)
+    LOGGER.debug('\t1> %g [s]', clock() - c)
+    j = jacobs(jacobian(f, avg))
+    LOGGER.debug('\t2> %g [s]', clock() - c)
+    cov = np.dot(np.dot(j, cov), j.T)
+    LOGGER.debug('\t3> %g [s]', clock() - c)
+    avg = f(avg)
+    LOGGER.debug('\t4> %g [s]', clock() - c)
+    cov = np.reshape(cov.diagonal(), avg.shape)
+    LOGGER.debug('\t5> %g [s]', clock() - c)
+    dt = np.dtype([('avg', float), ('cov', float)])
+    LOGGER.debug('\t6> %g [s]', clock() - c)
+    return np.array(zip(avg.squeeze(), cov.squeeze()), dtype=dt)
+
+
+cstart = clock()
+r12 = test_jacobian_cov()
+cstop = clock()
+LOGGER.debug('test jacobian estimate:\n\telapsed time> %g [s]\n',
+             cstop - cstart)
 
 # statsmodels.tools.models
 # * numdiff seems to have problems broadcasting despite what its docs say
@@ -314,8 +347,10 @@ LOGGER.debug('test algopy w/covariance:\n\telapsed time> %g [s]\n',
 
 # compare averages
 print "compare avg numpy to numpy: %s" % np.allclose(r1['avg'], r2['avg'])
-print "compare avg numpy to numpy: %s" % np.allclose(r1['avg'], [_.n for _ in r3])
-print "compare avg numpy to Uncertainties: %s" % np.allclose(r1['avg'], [_.n for _ in r4])
+print "compare avg numpy to numpy: %s" % np.allclose(
+    r1['avg'], [_.n for _ in r3])
+print "compare avg numpy to Uncertainties: %s" % np.allclose(
+    r1['avg'], [_.n for _ in r4])
 print "compare avg numpy to scipy: %s" % np.allclose(r1['avg'], r5['avg'])
 print "compare avg numpy to statsmodels: %s" % np.allclose(r1['avg'], r6['avg'])
 print "compare avg numpy to statsmodels: %s" % np.allclose(r1['avg'], r7['avg'])
@@ -326,7 +361,8 @@ print "compare avg numpy to algopy: %s" % np.allclose(r1['avg'], r11['avg'])
 print
 
 # compare std-dev
-print "compare std numpy to Uncertainties: %s" % np.allclose(r2['std'], [_.s for _ in r3])
+print "compare std numpy to Uncertainties: %s" % np.allclose(
+    r2['std'], [_.s for _ in r3])
 print "compare std numpy to scipy: %s" % np.allclose(r2['std'], r5['std'])
 print "compare std numpy to statsmodels: %s" % np.allclose(r2['std'], r6['std'])
 print "compare std numpy to numdifftools: %s" % np.allclose(r2['std'], r8['std'])
@@ -334,9 +370,12 @@ print "compare std numpy to algopy: %s" % np.allclose(r2['std'], r10['std'])
 print
 
 # compare covariance
-print "compare cov numpy to Uncertainties: %s" % np.allclose(r1['cov'], np.array([_.s for _ in r4]) ** 2)
+print "compare cov numpy to Uncertainties: %s" % np.allclose(
+    r1['cov'], np.array([_.s for _ in r4]) ** 2)
 # XXX: *** Uncertainties covariance doesn't match expected values ***
 print "compare cov numpy to statsmodels: %s" % np.allclose(r1['cov'], r7['cov'])
 print "compare cov numpy to numdifftools: %s" % np.allclose(r1['cov'], r9['cov'])
 print "compare cov numpy to algopy: %s" % np.allclose(r1['cov'], r11['cov'])
+print "compare cov numpy to jacobian estimate: %s" % np.allclose(
+    r1['cov'], r12['cov'])
 print
