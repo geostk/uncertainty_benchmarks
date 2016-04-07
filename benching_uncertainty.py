@@ -31,7 +31,7 @@ Notes:
 import numpy as np
 import numdifftools as nd
 import numdifftools.nd_algopy as nda
-from algopy import UTPM, zeros as zeros, sin
+from algopy import sin
 from uncertainties import ufloat, umath, unumpy, correlated_values, wrap
 #
 # wrap only works on scalars

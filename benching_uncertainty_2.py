@@ -1,11 +1,40 @@
 """
 benchmark uncertainty methods with more complicated function
+
+============================  ==============
+method                        Benchmark [s]
+============================  ==============
+Numpy w/std-dev only          0.00128837
+create ufloat w/std-dev only  5.81581e-05
+Uncertainties w/std-dev only  0.000139237
+statsmodels w/std-dev only    0.00134106
+numdifftools w/std-dev only   0.00411486
+algopy w/std-dev              0.00116829
+----------------------------  --------------
+Numpy w/covariance            0.00189253
+Jacobian estimate             0.00200543
+statsmodels w/covariance      0.000925056
+numdifftools w/covariance     0.00306835
+algopy w/covariance           0.00150869
+============================  ==============
+
+Notes:
+------
+* scipy only does derivatives so it can't be used in any situation with multiple
+  inputs args, which makes it kinda useless!
+* here is some hackery to make scipy derivative work as a jacobian
+
+    f = lambda x, n, args: F(np.roll(np.append(x, args[1:]), -n))
+    j = np.zeros((NARGS, NARGS))
+    for n in xrange(NARGS):
+        j[n] = derivative(f, AVG[n], args=[n, np.roll(AVG, -n)], dx=DX)
+    j = j.T
 """
 
 import numpy as np
 import numdifftools as nd
 import numdifftools.nd_algopy as nda
-from algopy import UTPM, zeros as zeros, sin
+from algopy import zeros
 from uncertainties import ufloat, umath, unumpy, correlated_values, wrap
 #
 # wrap only works on scalars
@@ -27,11 +56,16 @@ logging.basicConfig()
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-AVG = np.random.rand(1000) * 11.
-COV = np.random.rand(1000, 1000) / 11.
+NARGS = 2
+F = lambda x: np.array([x[0] ** 2 + 2 * x[0] * x[1] + x[1] ** 2,
+                        x[1] ** 2 - x[0] ** 2])
+G = lambda x: np.array([(2 * (x[0] + x[1]), 2 * (x[1] + x[0])),
+                        (-2 * x[0], 2 * x[1])])
+AVG = np.random.rand(NARGS) * 11.
+COV = np.random.rand(NARGS, NARGS) / 11.
 COV *= COV.T
 TOL = 1e-6
-COV = np.where(COV > TOL, COV, np.zeros((1000, 1000)))
+COV = np.where(COV > TOL, COV, np.zeros((2, 2)))
 STD = np.sqrt(COV.diagonal())
 
 # test pure numpy implementation of uncertainty
@@ -41,11 +75,11 @@ def test_puro_cov(avg=AVG, cov=COV):
     c = clock()
     nobs = avg.size
     LOGGER.debug('\t1> %g [s]', clock() - c)
-    j = np.eye(nobs) * np.cos(avg.flatten())
+    j = G(avg)
     LOGGER.debug('\t2> %g [s]', clock() - c)
     cov = np.dot(np.dot(j, cov), j.T)
     LOGGER.debug('\t3> %g [s]', clock() - c)
-    avg = np.sin(avg)
+    avg = F(avg)
     LOGGER.debug('\t4> %g [s]', clock() - c)
     cov = np.reshape(cov.diagonal(), avg.shape)
     LOGGER.debug('\t5> %g [s]', clock() - c)
@@ -73,11 +107,11 @@ LOGGER.debug('test puro w/covariance:\n\telapsed time> %g [s]\n',
 
 def test_puro_std(avg=AVG, std=STD):
     c = clock()
-    j = np.cos(avg)
+    j = G(avg)
     LOGGER.debug('\t1> %g [s]', clock() - c)
-    std = np.abs(j*std)  # np.sqrt(j*std*std*j)
+    std = [np.linalg.norm(j[n] * std) for n in xrange(NARGS)]
     LOGGER.debug('\t2> %g [s]', clock() - c)
-    avg = np.sin(avg)
+    avg = F(avg)
     LOGGER.debug('\t3> %g [s]', clock() - c)
     dt = np.dtype([('avg', float), ('std', float)])
     LOGGER.debug('\t4> %g [s]', clock() - c)
@@ -100,7 +134,7 @@ LOGGER.debug('create ufloat array w/std-dev only:\n\telapsed time> %g [s]\n',
 
 
 def test_uncertainties_std(x=X):
-    return unumpy.sin(x)
+    return F(x)
 
 
 cstart = clock()
@@ -117,7 +151,7 @@ LOGGER.debug('create array of correlated values:\n\telapsed time> %g [s]\n',
 
 
 def test_uncertainties_cov(y=Y):
-    return unumpy.sin(y)
+    return F(y)
 
 
 cstart = clock()
@@ -126,7 +160,6 @@ cstop = clock()
 LOGGER.debug('test uncertainties w/ covariance:\n\telapsed time> %g [s]\n',
              cstop - cstart)
 
-F = lambda x: np.sin(x)
 EPS = np.finfo(float).eps
 DX = EPS ** (1. / 3.)
 
@@ -139,21 +172,12 @@ DX = EPS ** (1. / 3.)
 # * ie: f(x) must be a scalar function
 # * however f(x) return can be an array
 def test_scipy_derivative(avg=AVG, std=STD, f=F):
-    c = clock()
-    j = derivative(f, avg, dx=DX)
-    LOGGER.debug('\t1> %g [s]', clock() - c)
-    std = np.abs(j*std)  # np.sqrt(j*std*std*j)
-    LOGGER.debug('\t2> %g [s]', clock() - c)
-    avg = F(avg)
-    LOGGER.debug('\t3> %g [s]', clock() - c)
-    dt = np.dtype([('avg', float), ('std', float)])
-    LOGGER.debug('\t4> %g [s]', clock() - c)
-    return np.array(zip(avg, std), dtype=dt)
+    return NotImplemented
 
 # test Jacobian estimate
 def test_jacobian_cov(avg=AVG, cov=COV, f=F):
     c = clock()
-    avg = np.atleast_2d(avg)
+    avg = avg.reshape((NARGS, 1))
     LOGGER.debug('\t1> %g [s]', clock() - c)
     j = jacobs(jacobian(f, avg))
     LOGGER.debug('\t2> %g [s]', clock() - c)
@@ -182,7 +206,7 @@ def test_statsmodels_numdiff_std(avg=AVG, std=STD, f=F):
     c = clock()
     j = numdiff.approx_fprime(avg, f, centered=True)
     LOGGER.debug('\t1> %g [s]', clock() - c)
-    std = np.abs(j.diagonal()*std)  # np.sqrt(j*std*std*j)
+    std = [np.linalg.norm(j[n] * std) for n in xrange(NARGS)]
     LOGGER.debug('\t2> %g [s]', clock() - c)
     avg = f(avg)
     LOGGER.debug('\t3> %g [s]', clock() - c)
@@ -229,11 +253,11 @@ LOGGER.debug('test statsmodels numdiff w/covariance:\n\telapsed time> %g [s]\n',
 
 def test_numdifftools_std(avg=AVG, std=STD, f=F):
     c = clock()
-    jac = nd.Derivative(f)
+    jac = nd.Jacobian(f)
     LOGGER.debug('\t1> %g [s]', clock() - c)
     j = jac(avg)
     LOGGER.debug('\t2> %g [s]', clock() - c)
-    std = np.abs(j*std)  # np.sqrt(j*std*std*j)
+    std = [np.linalg.norm(j[n] * std) for n in xrange(NARGS)]
     LOGGER.debug('\t3> %g [s]', clock() - c)
     avg = f(avg)
     LOGGER.debug('\t4> %g [s]', clock() - c)
@@ -272,16 +296,20 @@ LOGGER.debug('test numdifftools w/covariance:\n\telapsed time> %g [s]\n',
              cstop - cstart)
 
 # test numdifftools with algopy
+def H(x):
+    g = F(x)
+    out = zeros((NARGS, ), dtype=x)
+    for n in xrange(NARGS):
+        out[n] = g[n]
+    return out
 
-G = lambda x: sin(x)
-
-def test_algopy_std(avg=AVG, std=STD, f=G):
+def test_algopy_std(avg=AVG, std=STD, f=H):
     c = clock()
-    jac = nda.Derivative(f)
+    jac = nda.Jacobian(f)
     LOGGER.debug('\t1> %g [s]', clock() - c)
     j = jac(avg)
     LOGGER.debug('\t2> %g [s]', clock() - c)
-    std = np.abs(j*std)  # np.sqrt(j*std*std*j)
+    std = [np.linalg.norm(j[n] * std) for n in xrange(NARGS)]
     LOGGER.debug('\t3> %g [s]', clock() - c)
     avg = f(avg)
     LOGGER.debug('\t4> %g [s]', clock() - c)
@@ -290,7 +318,7 @@ def test_algopy_std(avg=AVG, std=STD, f=G):
     return np.array(zip(avg, std), dtype=dt)
 
 
-def test_algopy_cov(avg=AVG, cov=COV, f=G):
+def test_algopy_cov(avg=AVG, cov=COV, f=H):
     c = clock()
     jac = nda.Jacobian(f)
     LOGGER.debug('\t1> %g [s]', clock() - c)
@@ -325,7 +353,6 @@ print "compare avg numpy to numpy: %s" % np.allclose(
     r1['avg'], [_.n for _ in r3])
 print "compare avg numpy to Uncertainties: %s" % np.allclose(
     r1['avg'], [_.n for _ in r4])
-print "compare avg numpy to scipy: %s" % np.allclose(r1['avg'], r5['avg'])
 print "compare avg numpy to statsmodels: %s" % np.allclose(r1['avg'], r6['avg'])
 print "compare avg numpy to statsmodels: %s" % np.allclose(r1['avg'], r7['avg'])
 print "compare avg numpy to numdifftools: %s" % np.allclose(r1['avg'], r8['avg'])
@@ -337,7 +364,6 @@ print
 # compare std-dev
 print "compare std numpy to Uncertainties: %s" % np.allclose(
     r2['std'], [_.s for _ in r3])
-print "compare std numpy to scipy: %s" % np.allclose(r2['std'], r5['std'])
 print "compare std numpy to statsmodels: %s" % np.allclose(r2['std'], r6['std'])
 print "compare std numpy to numdifftools: %s" % np.allclose(r2['std'], r8['std'])
 print "compare std numpy to algopy: %s" % np.allclose(r2['std'], r10['std'])
