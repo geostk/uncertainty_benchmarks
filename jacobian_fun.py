@@ -17,25 +17,28 @@ def jacobian(func, x, *args, **kwargs):
     LOGGER.debug("number of observations: %d", nobs )
     f = lambda x_: func(x_, *args, **kwargs)
     j = None  # matrix of zeros
-    # other ideas:
-    # delta = np.eye(nargs) * DELTA
-    # delta = np.daig(np.repeat(DELTA, nargs))
-    # delta = np.daig(DELTA * np.ones(nargs))
-    # for d in delta:
-    #    pass
-    # delta = np.array([DELTA] + [0] * (nargs - 1))
-    delta = np.pad([[DELTA]], ((0, nargs - 1), (0, 0)), 'constant')
-    delta = delta.repeat(nobs, axis=1)
     for n in xrange(nargs):
-        dx = 2.0 * DELTA * np.tile(x[n], (nargs, 1))
-        df = (f(x * (1.0 + delta)) - f(x * (1.0 - delta))) / dx
+        d = np.zeros((nargs, nobs))
+        d[n] += x[n] * DELTA
+        dx = 2.0 * DELTA * x[n]
+        df = (f(x + d) - f(x - d)) / dx
         # derivatives df/d_n
         if j is None:
-            j = df.reshape(1, nargs, nobs)
-        else:
-            j = np.append(j, df.reshape(1, nargs, nobs), axis=0)
-        delta = np.roll(delta, 1, axis=0)
-    return j
+            j = np.zeros((df.shape[0], nargs, nobs))
+        j[n] = df
+    return j.T
+
+
+def jacobs(j):
+    nobs, nf, nx = j.shape
+    nrows, ncols = nf*nobs, nx*nobs
+    jj = np.zeros((nrows, ncols))
+    for n in xrange(nobs):
+        r, c = n*nf, n*nx
+        jj[r:r+nf, c:c+nx] = j[n]
+    return jj
+
+
 
 if __name__ == "__main__":
     g = lambda x: np.array([x[0] ** 2 + 2 * x[0] * x[1] + x[1] ** 2,
@@ -48,6 +51,18 @@ if __name__ == "__main__":
     print h(z)
     print "==================================================================="
     c = clock()
-    print jacobian(g, z)
+    j = jacobian(g, z)
     print "elapsed time = %g [s]" % (clock() - c)
+    print j
+    print j.shape
+    print "==================================================================="
+    xunc = 0.3
+    cov = np.diag(np.repeat(xunc ** 2, 2))  # covariance
+    sig = np.sqrt(np.dot(np.dot(j[0], cov), j[0].T))
+    print "signma = \n%r" % sig
+    std = [np.linalg.norm(j[0, 0] * xunc), np.linalg.norm(j[0, 1] * xunc)]
+    print "std-dev = %r" % std
+    print "==================================================================="
+    jj = jacobs(j)
+    print jj
     print "==================================================================="
