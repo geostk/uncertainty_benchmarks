@@ -20,6 +20,9 @@ algopy w/covariance           0.00150869
 
 Notes:
 ------
+* Jacobian estimate must be configured as f, x, obs, atleast_2d() is not always
+  the answer, sometimes use reshape((1,NARGS))
+* sometimes the calculated covariance is not positive, oh no!
 * scipy only does derivatives so it can't be used in any situation with multiple
   inputs args, which makes it kinda useless!
 * here is some hackery to make scipy derivative work as a jacobian
